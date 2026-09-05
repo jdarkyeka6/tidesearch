@@ -55,7 +55,19 @@ platform :ios do
     end
 
     unless key_text.include?("-----BEGIN PRIVATE KEY-----") && key_text.include?("-----END PRIVATE KEY-----")
-      UI.user_error!("ASC_KEY_CONTENT is present but does not look like an Apple AuthKey_*.p8 key. Use the complete .p8 contents or only its base64 body.")
+      classification = if normalized.match?(/\AAuthKey_[A-Za-z0-9_-]+\.p8\z/i)
+        "It looks like the .p8 FILENAME, not the file contents."
+      elsif normalized.match?(/\A[A-Z0-9]{8,20}\z/i)
+        "It looks like a short Key ID or other identifier, not the private key contents."
+      elsif normalized.start_with?("{") || normalized.start_with?("[")
+        "It looks like JSON or another structured value, not an Apple .p8 private key."
+      elsif normalized.length < 100
+        "The stored value is far too short to be an Apple .p8 private key."
+      else
+        "The stored value is long enough, but it is not valid PEM/base64 private-key data."
+      end
+
+      UI.user_error!("ASC_KEY_CONTENT is invalid. #{classification} Open the original AuthKey_*.p8 in a text editor and paste the entire file contents into the GitHub secret.")
     end
 
     begin
