@@ -17,29 +17,51 @@ platform :ios do
     missing << "ASC_KEY_CONTENT" if raw_key.empty?
     UI.user_error!("Missing GitHub secret(s): #{missing.join(', ')}") unless missing.empty?
 
+    require "base64"
+    require "openssl"
+
     # GitHub secrets are commonly pasted in several equivalent forms.
-    # Accept raw PEM, quoted PEM, PEM with literal \\n sequences, or base64.
+    # Accept raw PEM, quoted PEM, PEM with literal \\n sequences, full-PEM base64,
+    # DER base64, or just the base64 body from inside an AuthKey_*.p8 file.
     normalized = raw_key.dup
     if normalized.length >= 2 && ((normalized.start_with?("\"") && normalized.end_with?("\"")) || (normalized.start_with?("'") && normalized.end_with?("'")))
       normalized = normalized[1...-1]
     end
-    normalized = normalized.gsub("\\r\\n", "\n").gsub("\\n", "\n").gsub("\r\n", "\n")
+    normalized = normalized.gsub("\\r\\n", "\n").gsub("\\n", "\n").gsub("\r\n", "\n").strip
 
     key_text = normalized
 
-    unless key_text.include?("BEGIN PRIVATE KEY")
-      require "base64"
+    unless key_text.include?("-----BEGIN PRIVATE KEY-----")
+      compact = normalized.gsub(/\s+/, "")
+
       begin
-        compact = normalized.gsub(/\s+/, "")
         decoded = Base64.strict_decode64(compact)
-        key_text = decoded.gsub("\r\n", "\n")
+        decoded_text = decoded.dup.force_encoding("UTF-8")
+
+        if decoded_text.valid_encoding? && decoded_text.include?("-----BEGIN PRIVATE KEY-----")
+          key_text = decoded_text.gsub("\r\n", "\n")
+        elsif !decoded.empty? && decoded.getbyte(0) == 0x30
+          body = Base64.strict_encode64(decoded).scan(/.{1,64}/).join("\n")
+          key_text = "-----BEGIN PRIVATE KEY-----\n#{body}\n-----END PRIVATE KEY-----\n"
+        end
       rescue ArgumentError
-        # Leave key_text unchanged so the clear validation error below is used.
+        # Not full-value base64. It may simply be the body of the PEM.
+      end
+
+      if !key_text.include?("-----BEGIN PRIVATE KEY-----") && compact.match?(/\A[A-Za-z0-9+\/=]+\z/) && compact.length >= 100
+        body = compact.scan(/.{1,64}/).join("\n")
+        key_text = "-----BEGIN PRIVATE KEY-----\n#{body}\n-----END PRIVATE KEY-----\n"
       end
     end
 
     unless key_text.include?("-----BEGIN PRIVATE KEY-----") && key_text.include?("-----END PRIVATE KEY-----")
-      UI.user_error!("ASC_KEY_CONTENT was received, but it is not an Apple .p8 private key. Paste the complete AuthKey_*.p8 contents, including BEGIN/END PRIVATE KEY lines, or its base64 encoding.")
+      UI.user_error!("ASC_KEY_CONTENT is present but does not look like an Apple AuthKey_*.p8 key. Use the complete .p8 contents or only its base64 body.")
+    end
+
+    begin
+      OpenSSL::PKey.read(key_text)
+    rescue OpenSSL::PKey::PKeyError, ArgumentError
+      UI.user_error!("ASC_KEY_CONTENT has a private-key-looking format, but the key data itself is invalid. Re-copy the contents from the original AuthKey_*.p8 file.")
     end
 
     key_path = File.expand_path("~/asc_api_key.p8")
