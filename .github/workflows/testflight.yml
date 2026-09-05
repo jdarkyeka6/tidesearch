@@ -1,0 +1,65 @@
+name: TideSearch to TestFlight
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          if [ -d /Applications/Xcode_26.3.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.3.app
+          fi
+          xcodebuild -version
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build TideSearch web app
+        run: npm run build
+
+      - name: Verify static export
+        run: |
+          test -f out/index.html || {
+            echo "::error::Next.js did not create out/index.html"
+            exit 1
+          }
+
+      - name: Generate Capacitor iOS project
+        run: |
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Install TideSearch Fastlane config
+        run: |
+          mkdir -p ios/App/fastlane
+          cp fastlane/Fastfile ios/App/fastlane/Fastfile
+          cp fastlane/Gemfile ios/App/Gemfile
+
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: ios/App
+
+      - name: Build, sign, and upload to TestFlight
+        working-directory: ios/App
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bundle exec fastlane beta
