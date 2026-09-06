@@ -20,6 +20,7 @@ platform :ios do
     require "base64"
     require "openssl"
     require "shellwords"
+    require "fileutils"
 
     # Accept raw PEM, quoted PEM, PEM with literal \\n sequences, full-PEM base64,
     # DER base64, or only the base64 body from inside an AuthKey_*.p8 file.
@@ -86,17 +87,6 @@ platform :ios do
       key_filepath: key_path
     )
 
-    # GitHub-hosted macOS runners are disposable. Creating a fresh Apple Distribution
-    # certificate on every run eventually hits Apple's certificate limit because the
-    # private key from an older runner cannot be recovered. Use Xcode automatic/cloud
-    # signing instead, authenticated with the App Store Connect API key.
-    update_code_signing_settings(
-      path: "App.xcodeproj",
-      use_automatic_signing: true,
-      team_id: team_id,
-      targets: ["App"]
-    )
-
     latest = latest_testflight_build_number(
       api_key: api_key,
       app_identifier: APP_IDENTIFIER,
@@ -108,30 +98,75 @@ platform :ios do
       build_number: latest + 1
     )
 
-    auth_args = [
-      "-allowProvisioningUpdates",
-      "-authenticationKeyPath #{Shellwords.escape(key_path)}",
-      "-authenticationKeyID #{Shellwords.escape(key_id)}",
-      "-authenticationKeyIssuerID #{Shellwords.escape(issuer_id)}",
+    # A GitHub-hosted Mac has no persistent development identity. If we ask Xcode
+    # to sign during archive it tries to create an iOS Development profile, which
+    # requires a registered device. Archive with signing disabled, then let the
+    # App Store export step use Xcode cloud signing with the App Store Connect key.
+    build_dir = File.expand_path("build", Dir.pwd)
+    archive_path = File.join(build_dir, "TideSearch.xcarchive")
+    export_path = File.join(build_dir, "appstore")
+    export_options_path = File.join(build_dir, "ExportOptions.plist")
+
+    FileUtils.rm_rf(build_dir)
+    FileUtils.mkdir_p(build_dir)
+
+    archive_cmd = [
+      "xcodebuild",
+      "-project App.xcodeproj",
+      "-scheme App",
+      "-configuration Release",
+      "-destination 'generic/platform=iOS'",
+      "-archivePath #{Shellwords.escape(archive_path)}",
       "DEVELOPMENT_TEAM=#{Shellwords.escape(team_id)}",
-      "CODE_SIGN_STYLE=Automatic"
+      "CODE_SIGNING_ALLOWED=NO",
+      "CODE_SIGNING_REQUIRED=NO",
+      "CODE_SIGN_IDENTITY=''",
+      "archive"
     ].join(" ")
 
-    build_app(
-      project: "App.xcodeproj",
-      scheme: "App",
-      export_method: "app-store",
-      export_team_id: team_id,
-      export_options: {
-        signingStyle: "automatic",
-        teamID: team_id
-      },
-      xcargs: auth_args,
-      export_xcargs: auth_args
-    )
+    sh(archive_cmd)
+    UI.user_error!("Unsigned archive was not created at #{archive_path}") unless File.directory?(archive_path)
+
+    export_options = <<~PLIST
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>method</key>
+        <string>app-store-connect</string>
+        <key>teamID</key>
+        <string>#{team_id}</string>
+        <key>signingStyle</key>
+        <string>automatic</string>
+        <key>uploadSymbols</key>
+        <true/>
+      </dict>
+      </plist>
+    PLIST
+    File.write(export_options_path, export_options)
+
+    export_cmd = [
+      "xcodebuild",
+      "-exportArchive",
+      "-allowProvisioningUpdates",
+      "-archivePath #{Shellwords.escape(archive_path)}",
+      "-exportOptionsPlist #{Shellwords.escape(export_options_path)}",
+      "-exportPath #{Shellwords.escape(export_path)}",
+      "-authenticationKeyPath #{Shellwords.escape(key_path)}",
+      "-authenticationKeyID #{Shellwords.escape(key_id)}",
+      "-authenticationKeyIssuerID #{Shellwords.escape(issuer_id)}"
+    ].join(" ")
+
+    sh(export_cmd)
+
+    ipa_path = Dir[File.join(export_path, "*.ipa")].first
+    UI.user_error!("Xcode export completed but no .ipa was produced in #{export_path}") if ipa_path.nil?
+
+    UI.success("Cloud-signed IPA created: #{ipa_path}")
 
     upload_to_testflight(
       api_key: api_key,
+      ipa: ipa_path,
       skip_waiting_for_build_processing: true
     )
   end
