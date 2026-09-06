@@ -87,6 +87,13 @@ platform :ios do
       key_filepath: key_path
     )
 
+    # Fastlane executes shell commands from the fastlane directory. Resolve the
+    # generated Capacitor Xcode project explicitly so raw xcodebuild never depends
+    # on the current working directory.
+    app_root = File.expand_path("..", __dir__)
+    project_path = File.join(app_root, "App.xcodeproj")
+    UI.user_error!("Xcode project was not found at #{project_path}") unless File.directory?(project_path)
+
     latest = latest_testflight_build_number(
       api_key: api_key,
       app_identifier: APP_IDENTIFIER,
@@ -94,7 +101,7 @@ platform :ios do
     )
 
     increment_build_number(
-      xcodeproj: "App.xcodeproj",
+      xcodeproj: project_path,
       build_number: latest + 1
     )
 
@@ -102,7 +109,7 @@ platform :ios do
     # to sign during archive it tries to create an iOS Development profile, which
     # requires a registered device. Archive with signing disabled, then let the
     # App Store export step use Xcode cloud signing with the App Store Connect key.
-    build_dir = File.expand_path("build", Dir.pwd)
+    build_dir = File.expand_path("build", __dir__)
     archive_path = File.join(build_dir, "TideSearch.xcarchive")
     export_path = File.join(build_dir, "appstore")
     export_options_path = File.join(build_dir, "ExportOptions.plist")
@@ -112,7 +119,7 @@ platform :ios do
 
     archive_cmd = [
       "xcodebuild",
-      "-project App.xcodeproj",
+      "-project #{Shellwords.escape(project_path)}",
       "-scheme App",
       "-configuration Release",
       "-destination 'generic/platform=iOS'",
