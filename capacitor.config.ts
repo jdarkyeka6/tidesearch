@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: "TideSearch",
   webDir: "out",
   server: {
-    allowNavigation: ["www.google.com", "google.com", "*.google.com"],
+    allowNavigation: ["www.mojeek.com", "mojeek.com", "*.mojeek.com"],
   },
 };
 
