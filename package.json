@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@capacitor/browser": "^8.0.4",
     "@capacitor/core": "^8.0.0",
     "next": "15.5.2",
     "react": "19.1.1",
