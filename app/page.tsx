@@ -10,7 +10,7 @@ export default function Home() {
     const q = query.trim();
     if (!q) return;
 
-    window.location.href = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+    window.location.href = `https://www.mojeek.com/search?q=${encodeURIComponent(q)}`;
   }
 
   return (
@@ -57,8 +57,8 @@ export default function Home() {
       </header>
 
       <footer className="homeFooter">
-        <span>TideSearch v0.1</span>
-        <span>Results provided by Google</span>
+        <span>TideSearch v0.2</span>
+        <span>Results provided by Mojeek</span>
       </footer>
     </main>
   );
