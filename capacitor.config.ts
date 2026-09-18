@@ -5,25 +5,9 @@ const config: CapacitorConfig = {
   appName: "TideSearch",
   webDir: "out",
   server: {
-    allowNavigation: [
-      "google.com",
-      "*.google.com",
-      "youtube.com",
-      "*.youtube.com",
-      "chatgpt.com",
-      "*.chatgpt.com",
-      "github.com",
-      "*.github.com",
-      "claude.ai",
-      "*.claude.ai",
-      "gemini.google.com",
-      "newlaptops.com",
-      "*.newlaptops.com",
-      "httpbingo.org",
-      "*.httpbingo.org",
-      "http-stat.us",
-      "*.http-stat.us"
-    ],
+    // Probe browser mode: keep arbitrary web navigation inside TideSearch
+    // instead of maintaining a per-domain allowlist.
+    allowNavigation: ["*"],
   },
 };
 
