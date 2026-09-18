@@ -1,20 +1,32 @@
 "use client";
 
-import { Browser } from "@capacitor/browser";
 import { FormEvent, useState } from "react";
+
+function destinationFor(input: string) {
+  const value = input.trim();
+
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  if (/^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/.*)?$/i.test(value)) {
+    return `https://${value}`;
+  }
+
+  return `https://www.google.com/search?q=${encodeURIComponent(value)}`;
+}
 
 export default function Home() {
   const [query, setQuery] = useState("");
 
-  async function runSearch(event: FormEvent) {
+  function runSearch(event: FormEvent) {
     event.preventDefault();
     const q = query.trim();
     if (!q) return;
 
-    await Browser.open({
-      url: `https://www.mojeek.com/search?q=${encodeURIComponent(q)}`,
-      presentationStyle: "fullscreen",
-    });
+    // Screen Time probe: keep navigation in TideSearch's own Capacitor WKWebView
+    // rather than handing the URL to Capacitor Browser / Safari.
+    window.location.assign(destinationFor(q));
   }
 
   return (
@@ -29,7 +41,7 @@ export default function Home() {
           <span>TideSearch</span>
         </button>
 
-        <p className="tagline">Search the web.</p>
+        <p className="tagline">Screen Time suppression test build.</p>
 
         <form className="searchForm" onSubmit={runSearch}>
           <span className="searchIcon" aria-hidden="true">⌕</span>
@@ -37,8 +49,8 @@ export default function Home() {
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search the web"
-            aria-label="Search the web"
+            placeholder="Search Google or enter a website"
+            aria-label="Search or enter website"
             autoComplete="off"
             spellCheck={false}
           />
@@ -55,14 +67,14 @@ export default function Home() {
           )}
 
           <button className="searchButton" type="submit" disabled={!query.trim()}>
-            Search
+            Go
           </button>
         </form>
       </header>
 
       <footer className="homeFooter">
-        <span>TideSearch v0.3</span>
-        <span>Results provided by Mojeek</span>
+        <span>TideSearch Screen Time Probe</span>
+        <span>Google results stay inside TideSearch</span>
       </footer>
     </main>
   );
