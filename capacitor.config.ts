@@ -18,7 +18,9 @@ const config: CapacitorConfig = {
       "*.claude.ai",
       "gemini.google.com",
       "newlaptops.com",
-      "*.newlaptops.com"
+      "*.newlaptops.com",
+      "httpbingo.org",
+      "*.httpbingo.org"
     ],
   },
 };
