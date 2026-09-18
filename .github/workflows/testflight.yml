@@ -1,10 +1,10 @@
-name: TideSearch to TestFlight
+name: TideSearch SFSafari Screen Time probe
 
 on:
   workflow_dispatch: {}
   push:
     branches:
-      - main
+      - experiment/sfsafari-screentime-probe
 
 jobs:
   build:
@@ -44,6 +44,12 @@ jobs:
           npx cap add ios
           npx cap sync ios
 
+      - name: Declare exempt encryption usage
+        run: |
+          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" ios/App/App/Info.plist || \
+          /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :ITSAppUsesNonExemptEncryption" ios/App/App/Info.plist
+
       - name: Install TideSearch Fastlane config
         run: |
           mkdir -p ios/App/fastlane
@@ -57,7 +63,7 @@ jobs:
           bundler-cache: true
           working-directory: ios/App
 
-      - name: Build, sign, and upload to TestFlight
+      - name: Build, sign, and upload SFSafari probe to TestFlight
         working-directory: ios/App
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
