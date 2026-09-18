@@ -9,6 +9,8 @@ platform :ios do
     issuer_id = ENV["ASC_ISSUER_ID"].to_s.strip
     team_id   = ENV["APPLE_TEAM_ID"].to_s.strip
     raw_key   = ENV["ASC_KEY_CONTENT"].to_s.strip
+    probe_only = ENV["PROBE_ONLY"].to_s == "1"
+    probe_engine_entitlement = ENV["PROBE_ENGINE_ENTITLEMENT"].to_s == "1"
 
     missing = []
     missing << "ASC_KEY_ID" if key_id.empty?
@@ -117,7 +119,7 @@ platform :ios do
     FileUtils.rm_rf(build_dir)
     FileUtils.mkdir_p(build_dir)
 
-    archive_cmd = [
+    archive_cmd_parts = [
       "xcodebuild",
       "-project #{Shellwords.escape(project_path)}",
       "-scheme App",
@@ -127,9 +129,11 @@ platform :ios do
       "DEVELOPMENT_TEAM=#{Shellwords.escape(team_id)}",
       "CODE_SIGNING_ALLOWED=NO",
       "CODE_SIGNING_REQUIRED=NO",
-      "CODE_SIGN_IDENTITY=''",
-      "archive"
-    ].join(" ")
+      "CODE_SIGN_IDENTITY=''"
+    ]
+    archive_cmd_parts << "CODE_SIGN_ENTITLEMENTS=App/App.entitlements" if probe_engine_entitlement
+    archive_cmd_parts << "archive"
+    archive_cmd = archive_cmd_parts.join(" ")
 
     sh(archive_cmd)
     UI.user_error!("Unsigned archive was not created at #{archive_path}") unless File.directory?(archive_path)
@@ -171,10 +175,14 @@ platform :ios do
 
     UI.success("Cloud-signed IPA created: #{ipa_path}")
 
-    upload_to_testflight(
-      api_key: api_key,
-      ipa: ipa_path,
-      skip_waiting_for_build_processing: true
-    )
+    if probe_only
+      UI.success("Probe completed. IPA export succeeded; TestFlight upload intentionally skipped.")
+    else
+      upload_to_testflight(
+        api_key: api_key,
+        ipa: ipa_path,
+        skip_waiting_for_build_processing: true
+      )
+    end
   end
 end
