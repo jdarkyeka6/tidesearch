@@ -1,0 +1,82 @@
+name: Chromium iOS entitlement probe
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - experiment/chromium-ios-probe
+
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out probe branch
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          if [ -d /Applications/Xcode_26.3.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.3.app
+          fi
+          xcodebuild -version
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build TideSearch shell
+        run: npm run build
+
+      - name: Generate Capacitor iOS project
+        run: |
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Add alternative-engine entitlement probe
+        run: |
+          cat > ios/App/App/App.entitlements <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>com.apple.developer.embedded-web-browser-engine</key>
+            <true/>
+            <key>com.apple.developer.embedded-web-browser-engine.engine-association</key>
+            <array>
+              <string>third-party</string>
+            </array>
+          </dict>
+          </plist>
+          PLIST
+          plutil -lint ios/App/App/App.entitlements
+          cat ios/App/App/App.entitlements
+
+      - name: Install TideSearch Fastlane config
+        run: |
+          mkdir -p ios/App/fastlane
+          cp fastlane/Fastfile ios/App/fastlane/Fastfile
+          cp fastlane/Gemfile ios/App/Gemfile
+
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: ios/App
+
+      - name: Ask Apple cloud signing for the engine entitlement
+        working-directory: ios/App
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PROBE_ONLY: "1"
+          PROBE_ENGINE_ENTITLEMENT: "1"
+        run: bundle exec fastlane beta
