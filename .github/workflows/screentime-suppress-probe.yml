@@ -1,0 +1,144 @@
+name: TideSearch Screen Time suppression probe
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - experiment/screentime-suppress-probe
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Check out probe branch
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          if [ -d /Applications/Xcode_26.3.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.3.app
+          fi
+          xcodebuild -version
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build TideSearch web app
+        run: npm run build
+
+      - name: Generate Capacitor iOS project
+        run: |
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Wire Screen Time suppression into TideSearch WebView
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          app_delegate = Path("ios/App/App/AppDelegate.swift")
+          source = app_delegate.read_text()
+
+          source = source.replace(
+              "import Capacitor\n",
+              "import Capacitor\nimport ScreenTime\nimport WebKit\n",
+              1,
+          )
+
+          source += r'''
+
+          @objc(TideSearchBridgeViewController)
+          final class TideSearchBridgeViewController: CAPBridgeViewController {
+              private let screenTimeController = STWebpageController()
+              private var urlObservation: NSKeyValueObservation?
+
+              override func capacitorDidLoad() {
+                  super.capacitorDidLoad()
+
+                  guard let webView = webView else {
+                      print("[TideSearch ScreenTime] Capacitor webView was unavailable")
+                      return
+                  }
+
+                  // Apple's documented switch for preventing this webpage controller
+                  // from recording and reporting web-usage data.
+                  screenTimeController.suppressUsageRecording = true
+
+                  // STWebpageController is intended to sit on top of the webpage.
+                  // Keeping it as a child also preserves Screen Time's blocked-page UI.
+                  addChild(screenTimeController)
+                  let overlay = screenTimeController.view!
+                  overlay.translatesAutoresizingMaskIntoConstraints = false
+                  overlay.backgroundColor = .clear
+                  view.addSubview(overlay)
+                  NSLayoutConstraint.activate([
+                      overlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                      overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                      overlay.topAnchor.constraint(equalTo: view.topAnchor),
+                      overlay.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+                  ])
+                  screenTimeController.didMove(toParent: self)
+
+                  urlObservation = webView.observe(\.url, options: [.initial, .new]) {
+                      [weak self] observedWebView, _ in
+                      guard let self else { return }
+                      self.screenTimeController.url = observedWebView.url
+                      print("[TideSearch ScreenTime] URL = \(observedWebView.url?.absoluteString ?? "nil"), suppressUsageRecording = \(self.screenTimeController.suppressUsageRecording)")
+                  }
+
+                  print("[TideSearch ScreenTime] suppression controller attached")
+              }
+
+              deinit {
+                  urlObservation?.invalidate()
+              }
+          }
+          '''
+          app_delegate.write_text(source)
+
+          storyboard = Path("ios/App/App/Base.lproj/Main.storyboard")
+          story = storyboard.read_text()
+          updated, count = re.subn(
+              r'customClass="CAPBridgeViewController"\s+customModule="Capacitor"(?:\s+customModuleProvider="target")?',
+              'customClass="TideSearchBridgeViewController" customModule="App" customModuleProvider="target"',
+              story,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Could not replace CAPBridgeViewController in Main.storyboard")
+          storyboard.write_text(updated)
+          PY
+
+          echo "--- AppDelegate probe code ---"
+          grep -n "TideSearch ScreenTime\|TideSearchBridgeViewController\|suppressUsageRecording" ios/App/App/AppDelegate.swift
+          echo "--- Storyboard controller ---"
+          grep -n "TideSearchBridgeViewController" ios/App/App/Base.lproj/Main.storyboard
+
+      - name: Install TideSearch Fastlane config
+        run: |
+          mkdir -p ios/App/fastlane
+          cp fastlane/Fastfile ios/App/fastlane/Fastfile
+          cp fastlane/Gemfile ios/App/Gemfile
+
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: ios/App
+
+      - name: Build, sign, and upload Screen Time probe to TestFlight
+        working-directory: ios/App
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bundle exec fastlane beta
