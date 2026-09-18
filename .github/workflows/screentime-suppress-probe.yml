@@ -37,6 +37,12 @@ jobs:
           npx cap add ios
           npx cap sync ios
 
+      - name: Declare exempt encryption usage
+        run: |
+          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" ios/App/App/Info.plist || \
+          /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Print :ITSAppUsesNonExemptEncryption" ios/App/App/Info.plist
+
       - name: Wire Screen Time suppression into TideSearch WebView
         run: |
           python3 - <<'PY'
