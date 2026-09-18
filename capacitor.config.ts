@@ -20,7 +20,9 @@ const config: CapacitorConfig = {
       "newlaptops.com",
       "*.newlaptops.com",
       "httpbingo.org",
-      "*.httpbingo.org"
+      "*.httpbingo.org",
+      "http-stat.us",
+      "*.http-stat.us"
     ],
   },
 };
